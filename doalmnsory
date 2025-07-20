@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام متابعة الوثائق</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Using Arial for the entire application as requested -->
+    <style>
+        body {
+            font-family: 'Arial', sans-serif; /* Set font to Arial */
+            font-size: 14px; /* Set base font size */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        /* Modal specific styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Default z-index for add/edit modals */
+            opacity: 0; /* Start hidden for transition */
+            visibility: hidden; /* Hide completely for screen readers and interaction */
+            transition: opacity 0.3s ease-out, visibility 0.3s ease-out; /* Add transition for fade effect */
+        }
+        .modal-overlay.visible { /* New class for visible state */
+            opacity: 1;
+            visibility: visible;
+        }
+        /* Higher z-index for the general modal (used for delete confirmation) */
+        #modal.modal-overlay {
+            z-index: 2000;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            z-index: 1001; /* Default z-index for add/edit modal content */
+        }
+        /* Higher z-index for the general modal's content */
+        #modal .modal-content {
+            z-index: 2001;
+        }
+        .modal-close-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+        /* Loading overlay for PDF generation */
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            color: white;
+            font-size: 1.5rem;
+            flex-direction: column;
+            gap: 1rem;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-out, visibility 0.3s ease-out;
+        }
+        #loadingOverlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 font-sans text-right" dir="rtl">
+
+    <header class="bg-blue-800 text-white p-4 shadow-lg">
+        <div class="container mx-auto flex flex-col sm:flex-row justify-between items-center">
+            <h1 class="text-4xl font-extrabold mb-4 sm:mb-0">نظام متابعة الوثائق</h1>
+            <nav class="flex flex-wrap gap-3 sm:gap-4 text-lg">
+                <button id="listBtn" class="px-4 py-2 rounded-lg transition duration-300">
+                    قائمة الوثائق
+                </button>
+                <button id="addDocBtn" class="px-4 py-2 rounded-lg transition duration-300">
+                    إضافة وثيقة
+                </button>
+                <button id="manageTypesBtn" class="px-4 py-2 rounded-lg transition duration-300">
+                    إدارة الأنواع
+                </button>
+                <button id="reportBtn" class="px-4 py-2 rounded-lg transition duration-300">
+                    التقارير
+                </button>
+                <button id="settingsBtn" class="px-4 py-2 rounded-lg transition duration-300 text-2xl" title="الإعدادات">
+                    ⚙️
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <main id="appContent" class="container mx-auto p-4 mt-4">
+        <!-- Content will be rendered here by JavaScript -->
+        <div class="flex justify-center items-center h-full">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+            <p class="ml-4 text-lg text-gray-700">جاري تحميل التطبيق...</p>
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 text-white p-4 text-center mt-8 shadow-inner">
+        <p class="text-sm">معرف المستخدم الحالي: <span id="userIdDisplay">جاري التحميل...</span></p>
+        <p class="text-sm">&copy; <span id="currentYear"></span> نظام متابعة الوثائق. جميع الحقوق محفوظة.</p>
+    </footer>
+
+    <!-- General Modal Structure (for messages/confirmations) -->
+    <div id="modal" class="modal-overlay">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center modal-content">
+            <p id="modalMessage" class="mb-4 text-lg font-semibold text-gray-800 whitespace-pre-wrap"></p>
+            <div id="securityNumberInputContainer" class="mb-4 hidden">
+                <label for="securityNumberInput" class="block text-gray-700 text-sm font-bold mb-2">أدخل رقم الأمان:</label>
+                <input type="password" id="securityNumberInput" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                <p id="securityNumberError" class="text-red-500 text-xs mt-1 hidden">رقم الأمان غير صحيح.</p>
+            </div>
+            <div class="flex justify-center space-x-4">
+                <button id="modalConfirmBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 hidden">
+                    تأكيد
+                </button>
+                <button id="modalCancelBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+                    إغلاق
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Document Modal Structure -->
+    <div id="addDocModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close-btn" id="closeAddDocModalBtn">✖</button>
+            <h2 class="text-2xl font-bold mb-6 text-gray-800 text-center">إضافة وثيقة جديدة</h2>
+            <form id="addDocumentForm" class="space-y-4">
+                <div>
+                    <label for="documentNumber" class="block text-gray-700 text-sm font-bold mb-2">رقم الوثيقة:</label>
+                    <input type="text" id="documentNumber" name="documentNumber" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="computerNumber" class="block text-gray-700 text-sm font-bold mb-2">رقم الحاسب:</label>
+                    <input type="text" id="computerNumber" name="computerNumber" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="documentName" class="block text-gray-700 text-sm font-bold mb-2">اسم الوثيقة:</label>
+                    <input type="text" id="documentName" name="documentName" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="documentTypeId" class="block text-gray-700 text-sm font-bold mb-2">نوع الوثيقة:</label>
+                    <select id="documentTypeId" name="documentTypeId" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                        <option value="">اختر نوع الوثيقة</option>
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+                <div>
+                    <label for="expirationDate" class="block text-gray-700 text-sm font-bold mb-2">تاريخ الانتهاء:</label>
+                    <input type="date" id="expirationDate" name="expirationDate" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="notes" class="block text-gray-700 text-sm font-bold mb-2">ملاحظات:</label>
+                    <textarea id="notes" name="notes" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" rows="3"></textarea>
+                </div>
+                <div>
+                    <label for="attachment" class="block text-gray-700 text-sm font-bold mb-2">مرفق PDF (اختياري، بحد أقصى 500 كيلوبايت):</label>
+                    <input type="file" id="attachment" name="attachment" accept="application/pdf" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                    <p id="addAttachmentNameDisplay" class="text-sm text-gray-600 mt-1 hidden"></p>
+                </div>
+                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg w-full transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                    إضافة وثيقة
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Document Modal Structure -->
+    <div id="editDocModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close-btn" id="closeEditDocModalBtn">✖</button>
+            <h2 class="text-2xl font-bold mb-6 text-gray-800 text-center">تعديل الوثيقة</h2>
+            <form id="editDocumentForm" class="space-y-4">
+                <div>
+                    <label for="editDocNumber" class="block text-gray-700 text-sm font-bold mb-2">رقم الوثيقة:</label>
+                    <input type="text" id="editDocNumber" name="editDocNumber" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="editComputerNumber" class="block text-gray-700 text-sm font-bold mb-2">رقم الحاسب:</label>
+                    <input type="text" id="editComputerNumber" name="editComputerNumber" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="editDocName" class="block text-gray-700 text-sm font-bold mb-2">اسم الوثيقة:</label>
+                    <input type="text" id="editDocName" name="editDocName" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="editDocType" class="block text-gray-700 text-sm font-bold mb-2">نوع الوثيقة:</label>
+                    <select id="editDocType" name="editDocType" class="shadow border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                        <option value="">اختر نوع الوثيقة</option>
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+                <div>
+                    <label for="editExpirationDate" class="block text-gray-700 text-sm font-bold mb-2">تاريخ الانتهاء:</label>
+                    <input type="date" id="editExpirationDate" name="editExpirationDate" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" required>
+                </div>
+                <div>
+                    <label for="editNotes" class="block text-gray-700 text-sm font-bold mb-2">ملاحظات:</label>
+                    <textarea id="editNotes" name="editNotes" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" rows="3"></textarea>
+                </div>
+                <div>
+                    <label for="editAttachment" class="block text-gray-700 text-sm font-bold mb-2">مرفق PDF (اختياري، بحد أقصى 500 كيلوبايت):</label>
+                    <input type="file" id="editAttachment" name="editAttachment" accept="application/pdf" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                    <p id="editAttachmentNameDisplay" class="text-sm text-gray-600 mt-1 hidden"></p>
+                    <button type="button" id="removeAttachmentBtn" class="mt-2 bg-red-400 hover:bg-red-500 text-white font-bold py-1 px-3 rounded-lg text-sm transition duration-300 hidden">
+                        إزالة المرفق الحالي
+                    </button>
+                </div>
+                <div class="flex justify-between gap-4">
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg flex-grow transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                        حفظ التعديلات
+                    </button>
+                    <button type="button" id="deleteDocBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
+                        حذف الوثيقة
+                    </button>
+                    <button type="button" id="cancelEditBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+                        إلغاء
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Settings Modal Structure -->
+    <div id="settingsModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close-btn" id="closeSettingsModalBtn">✖</button>
+            <h2 class="text-2xl font-bold mb-6 text-gray-800 text-center">إعدادات التطبيق</h2>
+            <div class="space-y-4">
+                <div>
+                    <label for="securityNumberSetting" class="block text-gray-700 text-sm font-bold mb-2">تعيين/تغيير رقم الأمان للحذف:</label>
+                    <input type="password" id="securityNumberSetting" class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" placeholder="أدخل رقم أمان جديد">
+                    <p class="text-xs text-gray-500 mt-1">هذا الرقم مطلوب لتأكيد حذف الوثائق.</p>
+                </div>
+                <button id="saveSettingsBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg w-full transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                    حفظ الإعدادات
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay for PDF Generation -->
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <p>جاري إنشاء تقرير PDF...</p>
+        <p class="text-sm">(قد يستغرق الأمر بضع لحظات للوثائق الكبيرة)</p>
+    </div>
+
+
+    <!-- Firebase CDN -->
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"></script>
+    <script type="module" src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"></script>
+    <!-- XLSX library CDN -->
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <!-- jsPDF and jsPDF-AutoTable CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.autotable.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Get DOM elements
+        const appContent = document.getElementById('appContent');
+        const listBtn = document.getElementById('listBtn');
+        const addDocBtn = document.getElementById('addDocBtn');
+        const manageTypesBtn = document.getElementById('manageTypesBtn');
+        const reportBtn = document.getElementById('reportBtn');
+        const settingsBtn = document.getElementById('settingsBtn'); // New settings button
+        const userIdDisplay = document.getElementById('userIdDisplay');
+        const currentYearDisplay = document.getElementById('currentYear');
+
+        const modal = document.getElementById('modal'); // General message/confirmation modal
+        const modalMessage = document.getElementById('modalMessage');
+        const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+        const modalCancelBtn = document.getElementById('modalCancelBtn');
+        const securityNumberInputContainer = document.getElementById('securityNumberInputContainer');
+        const securityNumberInput = document.getElementById('securityNumberInput');
+        const securityNumberError = document.getElementById('securityNumberError');
+
+        const addDocModal = document.getElementById('addDocModal');
+        const closeAddDocModalBtn = document.getElementById('closeAddDocModalBtn');
+        const addDocumentForm = document.getElementById('addDocumentForm');
+        const addAttachmentNameDisplay = document.getElementById('addAttachmentNameDisplay');
+
+        const editDocModal = document.getElementById('editDocModal');
+        const closeEditDocModalBtn = document.getElementById('closeEditDocModalBtn');
+        const editDocumentForm = document.getElementById('editDocumentForm');
+        const editAttachmentNameDisplay = document.getElementById('editAttachmentNameDisplay');
+        const removeAttachmentBtn = document.getElementById('removeAttachmentBtn');
+
+        const settingsModal = document.getElementById('settingsModal'); // New settings modal
+        const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
+        const securityNumberSettingInput = document.getElementById('securityNumberSetting');
+        const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay'); // Loading overlay
+
+        // Firebase variables
+        let db;
+        let auth;
+        let currentUserId = 'جاري التحميل...';
+        let isAuthReady = false;
+
+        // Application data states
+        let documentTypes = [];
+        let documents = [];
+        let filteredDocuments = [];
+        let currentView = 'list'; // 'list', 'add-doc', 'manage-types', 'report', 'edit-doc', 'settings'
+        let editingDoc = null; // Holds the document object being edited
+        let appSecurityNumber = ''; // Stores the security number from settings
+
+        // Form data for new document (used for add modal)
+        let newDoc = {
+            documentNumber: '',
+            computerNumber: '',
+            documentName: '',
+            documentTypeId: '',
+            expirationDate: '',
+            notes: '',
+            attachment: '',
+            attachmentName: ''
+        };
+        // Form data for new document type
+        let newDocType = '';
+
+        // Initialize Firebase and set up auth listener
+        async function initializeFirebase() {
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+                if (Object.keys(firebaseConfig).length === 0) {
+                    showModal("خطأ في تهيئة Firebase. يرجى التحقق من الإعدادات.");
+                    return;
+                }
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        userIdDisplay.textContent = currentUserId;
+                        console.log("User signed in:", user.uid);
+                        await loadAppSettings(); // Load security number after user is authenticated
+                    } else {
+                        try {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                                console.log("Signed in with custom token.");
+                            } else {
+                                await signInAnonymously(auth);
+                                console.log("Signed in anonymously.");
+                            }
+                        } catch (error) {
+                            console.error("Error signing in:", error);
+                            showModal(`خطأ في تسجيل الدخول: ${error.message}`);
+                        }
+                    }
+                    isAuthReady = true;
+                    renderApp(); // Initial render after auth is ready
+                    setupFirestoreListeners(); // Start listening to Firestore
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+                showModal(`خطأ فادح في تهيئة التطبيق: ${error.message}`);
+            }
+        }
+
+        // Load application settings (like security number) from Firestore
+        async function loadAppSettings() {
+            if (!db || !currentUserId) return;
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const settingsDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/settings/appSettings`);
+                const settingsSnap = await getDoc(settingsDocRef);
+                if (settingsSnap.exists()) {
+                    const data = settingsSnap.data();
+                    appSecurityNumber = data.securityNumber || '';
+                    console.log("App settings loaded. Security number:", appSecurityNumber ? 'SET' : 'NOT SET');
+                } else {
+                    appSecurityNumber = ''; // No settings found
+                    console.log("No app settings found.");
+                }
+            } catch (error) {
+                console.error("Error loading app settings:", error);
+                showModal(`خطأ في تحميل الإعدادات: ${error.message}`);
+            }
+        }
+
+        // Save application settings (like security number) to Firestore
+        async function saveAppSettings(number) {
+            if (!db || !currentUserId) return;
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const settingsDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}/settings/appSettings`);
+                await setDoc(settingsDocRef, { securityNumber: number }, { merge: true });
+                appSecurityNumber = number; // Update local state
+                showModal("تم حفظ رقم الأمان بنجاح!");
+                console.log("Security number saved:", number ? 'SET' : 'NOT SET');
+            } catch (error) {
+                console.error("Error saving app settings:", error);
+                showModal(`خطأ في حفظ الإعدادات: ${e.message}`);
+            }
+        }
+
+        // Setup Firestore real-time listeners
+        function setupFirestoreListeners() {
+            if (!db || !currentUserId) return;
+
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+            // Document Types Listener
+            const docTypesCollectionRef = collection(db, `artifacts/${appId}/users/${currentUserId}/documentTypes`);
+            onSnapshot(docTypesCollectionRef, (snapshot) => {
+                documentTypes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Document types updated:", documentTypes);
+                applyFiltersAndSort(); // Re-apply filters/sort if types change
+                renderApp(); // Re-render to update UI
+            }, (error) => {
+                console.error("Error fetching document types:", error);
+                showModal(`خطأ في جلب أنواع الوثائق: ${error.message}`);
+            });
+
+            // Documents Listener
+            const documentsCollectionRef = collection(db, `artifacts/${appId}/users/${currentUserId}/documents`);
+            onSnapshot(documentsCollectionRef, (snapshot) => {
+                documents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Documents updated:", documents);
+                applyFiltersAndSort(); // Re-apply filters/sort
+                renderApp(); // Re-render to update UI
+            }, (error) => {
+                console.error("Error fetching documents:", error);
+                showModal(`خطأ في جلب الوثائق: ${error.message}`);
+            });
+        }
+
+        // Apply search, filter, and sort to documents
+        function applyFiltersAndSort() {
+            let currentDocs = [...documents];
+            const searchTerm = document.getElementById('searchTerm')?.value || '';
+            const selectedDocTypeFilter = document.getElementById('docTypeFilter')?.value || '';
+            const selectedStatusFilter = document.getElementById('statusFilter')?.value || ''; // New status filter
+
+            // Apply filter by document type
+            if (selectedDocTypeFilter) {
+                currentDocs = currentDocs.filter(doc => doc.documentTypeId === selectedDocTypeFilter);
+            }
+
+            // Apply status filter
+            if (selectedStatusFilter) {
+                currentDocs.forEach(doc => { // Ensure daysRemaining is calculated for filtering
+                    const today = new Date();
+                    const expirationDate = new Date(doc.expirationDate);
+                    const timeDiff = expirationDate.getTime() - today.getTime();
+                    doc.daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+                });
+
+                if (selectedStatusFilter === 'expired') {
+                    currentDocs = currentDocs.filter(doc => doc.daysRemaining <= 0);
+                } else if (selectedStatusFilter === 'expiringSoon') {
+                    currentDocs = currentDocs.filter(doc => doc.daysRemaining > 0 && doc.daysRemaining <= 30);
+                } else if (selectedStatusFilter === 'valid') {
+                    currentDocs = currentDocs.filter(doc => doc.daysRemaining > 30);
+                }
+            }
+
+            // Apply search term
+            if (searchTerm) {
+                const lowerCaseSearchTerm = searchTerm.toLowerCase();
+                currentDocs = currentDocs.filter(doc =>
+                    doc.documentNumber.toLowerCase().includes(lowerCaseSearchTerm) ||
+                    (doc.computerNumber || '').toLowerCase().includes(lowerCaseSearchTerm) || // Include computerNumber in search
+                    doc.documentName.toLowerCase().includes(lowerCaseSearchTerm) ||
+                    doc.notes.toLowerCase().includes(lowerCaseSearchTerm) ||
+                    (documentTypes.find(type => type.id === doc.documentTypeId)?.name || '').toLowerCase().includes(lowerCaseSearchTerm)
+                );
+            }
+
+            // Recalculate days remaining and sort (if not already done by status filter)
+            if (!selectedStatusFilter) {
+                const today = new Date();
+                currentDocs.forEach(doc => {
+                    const expirationDate = new Date(doc.expirationDate);
+                    const timeDiff = expirationDate.getTime() - today.getTime();
+                    doc.daysRemaining = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+                });
+            }
+
+
+            // Sort by days remaining ascending
+            currentDocs.sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+            filteredDocuments = currentDocs;
+        }
+
+        // Function to get row class based on days remaining
+        function getRowClass(daysRemaining) {
+            if (daysRemaining <= 0) {
+                return 'bg-red-100 hover:bg-red-200'; // Expired or due today
+            } else if (daysRemaining <= 7) {
+                return 'bg-orange-100 hover:bg-orange-200'; // Expiring very soon
+            } else if (daysRemaining <= 30) {
+                return 'bg-yellow-100 hover:bg-yellow-200'; // Expiring soon
+            }
+            return 'bg-white hover:bg-gray-50'; // Normal
+        }
+
+        // Handle file attachment for new/edit forms
+        function handleFileChange(e, isEdit = false) {
+            const file = e.target.files[0];
+            const attachmentNameDisplay = isEdit ? editAttachmentNameDisplay : addAttachmentNameDisplay;
+
+            if (file) {
+                if (file.type !== 'application/pdf') {
+                    showModal("الرجاء رفع ملف PDF فقط.");
+                    if (isEdit) {
+                        editingDoc.attachment = '';
+                        editingDoc.attachmentName = '';
+                    } else {
+                        newDoc.attachment = '';
+                        newDoc.attachmentName = '';
+                    }
+                    attachmentNameDisplay.classList.add('hidden');
+                    return;
+                }
+                if (file.size > 1024 * 500) { // 500KB limit for demonstration, Firestore doc limit is 1MB
+                    showModal("حجم الملف كبير جداً. الحد الأقصى المسموح به هو 500 كيلوبايت. (ملاحظة: حجم مستند Firestore الكلي هو 1 ميجابايت).");
+                    if (isEdit) {
+                        editingDoc.attachment = '';
+                        editingDoc.attachmentName = '';
+                    } else {
+                        newDoc.attachment = '';
+                        newDoc.attachmentName = '';
+                    }
+                    attachmentNameDisplay.classList.add('hidden');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const base64String = event.target.result;
+                    if (isEdit) {
+                        editingDoc.attachment = base64String;
+                        editingDoc.attachmentName = file.name;
+                    } else {
+                        newDoc.attachment = base64String;
+                        newDoc.attachmentName = file.name;
+                    }
+                    attachmentNameDisplay.textContent = `الملف المرفق: ${file.name}`;
+                    attachmentNameDisplay.classList.remove('hidden');
+                    if (isEdit && removeAttachmentBtn) {
+                        removeAttachmentBtn.classList.remove('hidden');
+                    }
+                };
+                reader.readAsDataURL(file);
+            } else {
+                // Clear attachment if no file is selected
+                if (isEdit) {
+                    editingDoc.attachment = '';
+                    editingDoc.attachmentName = '';
+                } else {
+                    newDoc.attachment = '';
+                    newDoc.attachmentName = '';
+                }
+                attachmentNameDisplay.classList.add('hidden');
+                if (isEdit && removeAttachmentBtn) {
+                    removeAttachmentBtn.classList.add('hidden');
+                }
+            }
+        }
+
+        // Handle adding a new document type
+        async function handleAddDocType() {
+            const inputElement = document.getElementById('newDocTypeInput');
+            const typeName = inputElement ? inputElement.value.trim() : '';
+
+            if (!typeName || !db || !currentUserId) {
+                showModal("الرجاء إدخال اسم لنوع الوثيقة.");
+                return;
+            }
+            if (documentTypes.some(type => type.name.toLowerCase() === typeName.toLowerCase())) {
+                showModal("هذا النوع من الوثائق موجود بالفعل.");
+                return;
+            }
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                await addDoc(collection(db, `artifacts/${appId}/users/${currentUserId}/documentTypes`), {
+                    name: typeName,
+                    createdAt: new Date().toISOString()
+                });
+                newDocType = ''; // Clear input
+                showModal("تمت إضافة نوع الوثيقة بنجاح!");
+                renderApp();
+            } catch (e) {
+                console.error("Error adding document type: ", e);
+                showModal(`خطأ في إضافة نوع الوثيقة: ${e.message}`);
+            }
+        }
+
+        // Handle adding a new document
+        async function handleAddDocument(e) {
+            e.preventDefault();
+            const form = e.target;
+            const docData = {
+                documentNumber: form.documentNumber.value,
+                computerNumber: form.computerNumber.value,
+                documentName: form.documentName.value,
+                documentTypeId: form.documentTypeId.value,
+                expirationDate: form.expirationDate.value,
+                notes: form.notes.value,
+                attachment: newDoc.attachment || '',
+                attachmentName: newDoc.attachmentName || ''
+            };
+
+            if (!docData.documentNumber || !docData.documentName || !docData.documentTypeId || !docData.expirationDate || !db || !currentUserId) {
+                showModal("الرجاء تعبئة جميع الحقول المطلوبة.");
+                return;
+            }
+
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                await addDoc(collection(db, `artifacts/${appId}/users/${currentUserId}/documents`), {
+                    ...docData,
+                    createdAt: new Date().toISOString()
+                });
+                // Reset newDoc state and form fields
+                newDoc = {
+                    documentNumber: '',
+                    computerNumber: '',
+                    documentName: '',
+                    documentTypeId: '',
+                    expirationDate: '',
+                    notes: '',
+                    attachment: '',
+                    attachmentName: ''
+                };
+                form.reset(); // Clear form inputs
+                addAttachmentNameDisplay.classList.add('hidden'); // Hide attachment name display
+                showModal("تمت إضافة الوثيقة بنجاح!");
+                hideAddDocModal(); // Close the modal
+                currentView = 'list'; // Ensure list view is active
+                renderApp(); // Re-render list
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                showModal(`خطأ في إضافة الوثيقة: ${e.message}`);
+            }
+        }
+
+        // Handle updating an existing document
+        async function handleUpdateDocument(e) {
+            e.preventDefault();
+            const form = e.target;
+            const updatedDocData = {
+                documentNumber: form.editDocNumber.value,
+                computerNumber: form.editComputerNumber.value,
+                documentName: form.editDocName.value,
+                documentTypeId: form.editDocType.value,
+                expirationDate: form.editExpirationDate.value,
+                notes: form.editNotes.value,
+                attachment: editingDoc.attachment || '',
+                attachmentName: editingDoc.attachmentName || ''
+            };
+
+            if (!updatedDocData.documentNumber || !updatedDocData.documentName || !updatedDocData.documentTypeId || !updatedDocData.expirationDate || !db || !currentUserId) {
+                showModal("الرجاء تعبئة جميع الحقول المطلوبة.");
+                return;
+            }
+
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const docRef = doc(db, `artifacts/${appId}/users/${currentUserId}/documents`, editingDoc.id);
+                await updateDoc(docRef, {
+                    ...updatedDocData,
+                    updatedAt: new Date().toISOString()
+                });
+                showModal("تم تحديث الوثيقة بنجاح!");
+                editingDoc = null; // Clear editing state
+                hideEditDocModal(); // Close the modal
+                currentView = 'list'; // Ensure list view is active
+                renderApp(); // Re-render list
+            } catch (e) {
+                console.error("Error updating document: ", e);
+                showModal(`خطأ في تحديث الوثيقة: ${e.message}`);
+            }
+        }
+
+        // Handle deleting a document type
+        async function handleDeleteDocType(id) {
+            if (!db || !currentUserId) return;
+
+            const associatedDocs = documents.filter(doc => doc.documentTypeId === id);
+            if (associatedDocs.length > 0) {
+                showModal("لا يمكن حذف هذا النوع من الوثائق لأنه مرتبط بوثائق موجودة. يرجى حذف الوثائق المرتبطة أولاً.");
+                return;
+            }
+
+            // Use the general modal for confirmation, passing the action and indicating it's a delete
+            showModal("هل أنت متأكد أنك تريد حذف هذا النوع من الوثائق؟", async () => {
+                try {
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/documentTypes`, id));
+                    showModal("تم حذف نوع الوثيقة بنجاح!");
+                    renderApp();
+                } catch (e) {
+                    console.error("Error deleting document type: ", e);
+                    showModal(`خطأ في حذف نوع الوثيقة: ${e.message}`);
+                }
+            }, true, false); // isConfirmable=true, isDeleteAction=false (no security number for type deletion)
+        }
+
+        // Handle deleting a document (used in edit view)
+        async function handleDeleteDocument(id) {
+            if (!db || !currentUserId) return;
+
+            // Use the general modal for confirmation, passing the action and indicating it's a delete
+            showModal("هل أنت متأكد أنك تريد حذف هذه الوثيقة؟", async () => {
+                try {
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    await deleteDoc(doc(db, `artifacts/${appId}/users/${currentUserId}/documents`, id));
+                    showModal("تم حذف الوثيقة بنجاح!");
+                    editingDoc = null; // Clear editing state
+                    hideEditDocModal(); // Close the modal
+                    currentView = 'list';
+                    renderApp();
+                } catch (e) {
+                    console.error("Error deleting document: ", e);
+                    showModal(`خطأ في حذف الوثيقة: ${e.message}`);
+                }
+            }, true, true); // isConfirmable=true, isDeleteAction=true (requires security number)
+        }
+
+        // Handle downloading an attachment
+        function handleDownloadAttachment(base64Data, filename) {
+            if (!base64Data) {
+                showModal("لا يوجد مرفق لهذه الوثيقة.");
+                return;
+            }
+            try {
+                const byteCharacters = atob(base64Data.split(',')[1] || base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'application/pdf' });
+
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename || 'attachment.pdf';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                console.error("Error downloading attachment:", error);
+                showModal("حدث خطأ أثناء تنزيل المرفق.");
+            }
+        }
+
+        // Trigger hidden file input click for import
+        function triggerImport() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx, .xls';
+            input.onchange = handleImportFromXLSX;
+            input.click();
+        }
+
+        // Handle importing from XLSX file
+        async function handleImportFromXLSX(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            if (!window.XLSX) {
+                showModal("مكتبة XLSX غير محملة. يرجى التأكد من أن الاتصال بالإنترنت يعمل بشكل صحيح.");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = window.XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0]; // Get the first sheet
+                    const worksheet = workbook.Sheets[sheetName];
+                    const json = window.XLSX.utils.sheet_to_json(worksheet);
+
+                    if (json.length === 0) {
+                        showModal("ملف Excel فارغ أو لا يحتوي على بيانات صالحة.");
+                        return;
+                    }
+
+                    const expectedHeaders = {
+                        'رقم الوثيقة': 'documentNumber',
+                        'رقم الحاسب': 'computerNumber',
+                        'اسم الوثيقة': 'documentName',
+                        'نوع الوثيقة': 'documentTypeName', // Temporary, will map to ID
+                        'تاريخ الانتهاء': 'expirationDate',
+                        'ملاحظات': 'notes'
+                    };
+
+                    const importedDocuments = [];
+                    let successCount = 0;
+                    let failCount = 0;
+                    const errors = [];
+
+                    for (const row of json) {
+                        const docData = {};
+                        let isValidRow = true;
+
+                        // Map columns and validate
+                        for (const header in expectedHeaders) {
+                            const field = expectedHeaders[header];
+                            // Check if the header exists in the row and is not null/undefined
+                            // For 'ملاحظات' and 'رقم الحاسب', they can be optional, so check only for required fields
+                            if ((header === 'رقم الوثيقة' || header === 'اسم الوثيقة' || header === 'نوع الوثيقة' || header === 'تاريخ الانتهاء') && (row[header] === undefined || row[header] === null)) {
+                                isValidRow = false;
+                                errors.push(`صف يحتوي على بيانات غير مكتملة (مفقود: ${header}).`);
+                                break;
+                            }
+                            docData[field] = row[header];
+                        }
+
+                        if (!isValidRow) {
+                            failCount++;
+                            continue;
+                        }
+
+                        // Validate and map document type
+                        const docType = documentTypes.find(type => type.name === docData.documentTypeName);
+                        if (!docType) {
+                            isValidRow = false;
+                            errors.push(`نوع الوثيقة '${docData.documentTypeName}' غير موجود في النظام لـ: ${docData.documentName}.`);
+                            failCount++;
+                            continue;
+                        }
+                        docData.documentTypeId = docType.id;
+                        delete docData.documentTypeName; // Remove temporary field
+
+                        // Validate date format and convert to YYYY-MM-DD
+                        let dateValue = docData.expirationDate;
+                        if (typeof dateValue === 'number') { // XLSX might parse dates as numbers (days since 1900)
+                            dateValue = window.XLSX.SSF.format('yyyy-mm-dd', dateValue);
+                        }
+                        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+                            isValidRow = false;
+                            errors.push(`صيغة تاريخ الانتهاء غير صحيحة لـ: ${docData.documentName}. يجب أن تكون YYYY-MM-DD.`);
+                            failCount++;
+                            continue;
+                        }
+                        docData.expirationDate = dateValue;
+
+                        if (isValidRow) {
+                            importedDocuments.push({
+                                documentNumber: String(docData.documentNumber), // Ensure string
+                                computerNumber: String(docData.computerNumber || ''), // Ensure string, handle optional
+                                documentName: String(docData.documentName),
+                                documentTypeId: docData.documentTypeId,
+                                expirationDate: docData.expirationDate,
+                                notes: String(docData.notes || ''),
+                                attachment: '', // No attachment from Excel import
+                                attachmentName: '', // No attachment from Excel import
+                                createdAt: new Date().toISOString()
+                            });
+                        }
+                    }
+
+                    if (importedDocuments.length > 0) {
+                        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                        const documentsCollectionRef = collection(db, `artifacts/${appId}/users/${currentUserId}/documents`);
+
+                        const promises = importedDocuments.map(doc => addDoc(documentsCollectionRef, doc));
+                        await Promise.all(promises);
+                        successCount = importedDocuments.length;
+                    }
+
+                    let finalMessage = `تم استيراد ${successCount} وثيقة بنجاح.`;
+                    if (failCount > 0) {
+                        finalMessage += ` فشل استيراد ${failCount} وثيقة.`;
+                        if (errors.length > 0) {
+                            finalMessage += ` الأخطاء: \n- ${errors.join('\n- ')}`;
+                        }
+                    }
+                    showModal(finalMessage);
+                    renderApp(); // Re-render to show imported docs
+                } catch (error) {
+                    console.error("Error importing XLSX:", error);
+                    showModal(`خطأ أثناء معالجة ملف Excel: ${error.message}. يرجى التأكد من أن الملف بصيغة XLSX الصحيحة.`);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Handle Export to XLS
+        function handleExportToXLS(dataToExport, filename = 'documents_export.xls') {
+            if (!window.XLSX) {
+                showModal("مكتبة XLSX غير محملة. لا يمكن تصدير البيانات.");
+                return;
+            }
+
+            if (dataToExport.length === 0) {
+                showModal("لا توجد بيانات لتصديرها.");
+                return;
+            }
+
+            const headers = [
+                'رقم الوثيقة',
+                'رقم الحاسب',
+                'اسم الوثيقة',
+                'نوع الوثيقة',
+                'تاريخ الانتهاء',
+                'الأيام المتبقية',
+                'ملاحظات',
+                'اسم المرفق'
+            ];
+
+            const exportData = dataToExport.map(doc => {
+                const docTypeName = documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف';
+                return [
+                    doc.documentNumber,
+                    doc.computerNumber || '',
+                    doc.documentName,
+                    docTypeName,
+                    doc.expirationDate,
+                    doc.daysRemaining,
+                    doc.notes || '',
+                    doc.attachmentName || ''
+                ];
+            });
+
+            const ws = XLSX.utils.aoa_to_sheet([headers, ...exportData]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "الوثائق");
+
+            try {
+                XLSX.writeFile(wb, filename, { bookType: 'xls', type: 'base64' });
+                showModal("تم تصدير البيانات إلى ملف Excel بنجاح!");
+            } catch (e) {
+                console.error("Error exporting to XLS:", e);
+                showModal(`خطأ أثناء تصدير البيانات إلى Excel: ${e.message}`);
+            }
+        }
+
+
+        // Handle sharing report summary to WhatsApp
+        function handleShareToWhatsApp() {
+            const totalDocuments = documents.length;
+            const expiredDocuments = documents.filter(doc => doc.daysRemaining <= 0).length;
+            const expiringSoonDocuments = documents.filter(doc => doc.daysRemaining > 0 && doc.daysRemaining <= 30).length;
+
+            const documentsByType = documents.reduce((acc, doc) => {
+                const typeName = documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف';
+                acc[typeName] = (acc[typeName] || 0) + 1;
+                return acc;
+            }, {});
+
+            let typeSummary = Object.entries(documentsByType)
+                .map(([type, count]) => `${type}: ${count}`)
+                .join('\n');
+
+            if (typeSummary === '') {
+                typeSummary = 'لا توجد وثائق مصنفة حسب النوع.';
+            }
+
+            const message = `
+*تقرير متابعة الوثائق:*
+
+*إجمالي الوثائق:* ${totalDocuments}
+*وثائق منتهية:* ${expiredDocuments}
+*تنتهي قريباً (30 يوم):* ${expiringSoonDocuments}
+
+*الوثائق حسب النوع:*
+${typeSummary}
+
+(تم إنشاء هذا التقرير من نظام متابعة الوثائق الخاص بك.)
+            `.trim();
+
+            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+            window.open(whatsappUrl, '_blank');
+        }
+
+        // Function to generate and download the professional PDF report directly
+        // This function is no longer called by a button, but kept for reference if PDF generation is needed elsewhere.
+        async function generateProfessionalPdfReport() {
+            loadingOverlay.classList.add('visible'); // Show loading overlay
+
+            try {
+                // Ensure daysRemaining is calculated for all documents before generating report
+                const docsForReport = documents.map(doc => {
+                    const today = new Date();
+                    const expirationDate = new Date(doc.expirationDate);
+                    const timeDiff = expirationDate.getTime() - today.getTime();
+                    return {
+                        ...doc,
+                        daysRemaining: Math.ceil(timeDiff / (1000 * 60 * 60 * 24))
+                    };
+                });
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({
+                    orientation: 'landscape', // Use landscape for wider tables
+                    unit: 'pt',
+                    format: 'a4'
+                });
+
+                // IMPORTANT: For proper Arabic rendering in PDF, you MUST embed an Arabic font.
+                // jsPDF's default fonts do NOT support Arabic characters.
+                // To embed a font:
+                // 1. Get a .ttf font file that supports Arabic (e.g., Noto Sans Arabic, Arial Unicode MS).
+                // 2. Convert the .ttf file to a base64 string using a tool like:
+                //    https://raw.githack.com/MrRio/jsPDF/master/fontconverter/fontconverter.html
+                // 3. Add the font to jsPDF using doc.addFileToVFS and doc.addFont.
+                // 4. Set the font using doc.setFont().
+                //
+                // Example (replace 'yourFontBase64' with the actual base64 string of your font):
+                // const arabicFontBase64 = 'YOUR_ARABIC_FONT_BASE64_STRING_HERE';
+                // doc.addFileToVFS('NotoSansArabic-Regular.ttf', arabicFontBase64);
+                // doc.addFont('NotoSansArabic-Regular.ttf', 'NotoSansArabic', 'normal');
+                // doc.setFont('NotoSansArabic'); // Set this font for all Arabic text
+
+                // For now, using a fallback font. Arabic text might not render correctly (disconnected letters).
+                doc.setFont('helvetica', 'normal'); // Fallback font - Arabic text will likely appear as disconnected letters.
+
+
+                let yOffset = 40; // Initial Y offset
+
+                // Add Header with Logo and Title
+                const pageWidth = doc.internal.pageSize.width;
+                const logoWidth = 60; // pt
+                const logoHeight = 60; // pt
+                const logoX = (pageWidth / 2) - (logoWidth / 2); // Center logo
+                doc.addImage("https://placehold.co/100x100/ADD8E6/000000?text=Your+Logo", "PNG", logoX, yOffset, logoWidth, logoHeight);
+                yOffset += logoHeight + 10;
+
+                doc.setFontSize(24);
+                doc.text("تقرير جميع الوثائق", pageWidth / 2, yOffset, { align: 'center' });
+                yOffset += 20;
+                doc.setFontSize(10);
+                doc.text(`تاريخ التقرير: ${new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth / 2, yOffset, { align: 'center' });
+                yOffset += 40;
+
+                // Summary Section
+                doc.setFontSize(18);
+                doc.text("ملخص الوثائق", 50, yOffset);
+                yOffset += 20;
+
+                const totalDocuments = docsForReport.length;
+                const expiredDocuments = docsForReport.filter(doc => doc.daysRemaining <= 0).length;
+                const expiringSoonDocuments = docsForReport.filter(doc => doc.daysRemaining > 0 && doc.daysRemaining <= 30).length;
+                const validDocuments = docsForReport.filter(doc => doc.daysRemaining > 30).length;
+
+                const summaryData = [
+                    ["إجمالي الوثائق", "وثائق منتهية", "تنتهي قريباً (30 يوم)", "سارية المفعول"],
+                    [totalDocuments, expiredDocuments, expiringSoonDocuments, validDocuments]
+                ];
+                doc.autoTable({
+                    startY: yOffset,
+                    head: [summaryData[0]],
+                    body: [summaryData[1]],
+                    theme: 'grid',
+                    styles: {
+                        font: 'helvetica', // Change this to your Arabic font name if embedded
+                        fontStyle: 'normal',
+                        fontSize: 10,
+                        halign: 'center', // Center align for numbers
+                        cellPadding: 8,
+                        fillColor: [235, 248, 255], // Light blue
+                        textColor: [26, 32, 44]
+                    },
+                    headStyles: {
+                        fillColor: [49, 130, 206], // Darker blue
+                        textColor: [255, 255, 255],
+                        fontStyle: 'bold'
+                    },
+                    columnStyles: {
+                        0: { halign: 'right' }, // Right align for Arabic headers
+                        1: { halign: 'center' },
+                        2: { halign: 'center' },
+                        3: { halign: 'center' }
+                    },
+                    didParseCell: function (data) {
+                        // Apply different colors for expired/expiring soon in summary
+                        if (data.section === 'body' && data.row.index === 0) {
+                            if (data.column.index === 1) { // Expired count
+                                data.cell.styles.fillColor = [254, 226, 226]; // Light red
+                                data.cell.styles.textColor = [197, 48, 48]; // Dark red
+                            } else if (data.column.index === 2) { // Expiring soon count
+                                data.cell.styles.fillColor = [255, 251, 235]; // Light orange
+                                data.cell.styles.textColor = [214, 158, 46]; // Dark orange
+                            }
+                        }
+                    }
+                });
+                yOffset = doc.autoTable.previous.finalY + 30;
+
+                // Documents by Type Section
+                doc.setFontSize(18);
+                doc.text("الوثائق حسب النوع", 50, yOffset);
+                yOffset += 20;
+
+                const documentsByTypeMap = docsForReport.reduce((acc, doc) => {
+                    const typeName = documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف';
+                    acc[typeName] = (acc[typeName] || 0) + 1;
+                    return acc;
+                }, {});
+
+                const typeTableData = Object.entries(documentsByTypeMap).map(([type, count]) => [type, count]);
+                if (typeTableData.length === 0) {
+                    doc.setFontSize(12);
+                    doc.text("لا توجد وثائق مصنفة حسب النوع.", 50, yOffset);
+                    yOffset += 30;
+                } else {
+                    doc.autoTable({
+                        startY: yOffset,
+                        head: [['نوع الوثيقة', 'العدد']],
+                        body: typeTableData,
+                        theme: 'grid',
+                        styles: { font: 'helvetica', fontStyle: 'normal', fontSize: 10, cellPadding: 8 }, // Change font here too
+                        headStyles: { fillColor: [49, 130, 206], textColor: [255, 255, 255] },
+                        columnStyles: {
+                            0: { halign: 'right' },
+                            1: { halign: 'center' }
+                        }
+                    });
+                    yOffset = doc.autoTable.previous.finalY + 30;
+                }
+
+
+                // Detailed Documents Table
+                doc.setFontSize(18);
+                doc.text("تفاصيل الوثائق", 50, yOffset);
+                yOffset += 20;
+
+                const tableHeaders = [
+                    'رقم الوثيقة', 'رقم الحاسب', 'اسم الوثيقة', 'نوع الوثيقة',
+                    'تاريخ الانتهاء', 'الأيام المتبقية', 'ملاحظات', 'المرفق'
+                ];
+
+                const tableBodyData = docsForReport.map(doc => {
+                    const docTypeName = documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف';
+                    return [
+                        doc.documentNumber,
+                        doc.computerNumber || '-',
+                        doc.documentName,
+                        docTypeName,
+                        doc.expirationDate,
+                        `${doc.daysRemaining} يوم`,
+                        doc.notes || '-',
+                        doc.attachmentName ? 'مرفق' : '-'
+                    ];
+                });
+
+                doc.autoTable({
+                    startY: yOffset,
+                    head: [tableHeaders],
+                    body: tableBodyData,
+                    theme: 'grid',
+                    styles: { font: 'helvetica', fontStyle: 'normal', fontSize: 8, cellPadding: 6 }, // Change font here too
+                    headStyles: { fillColor: [49, 130, 206], textColor: [255, 255, 255] },
+                    columnStyles: {
+                        0: { halign: 'right' },
+                        1: { halign: 'right' },
+                        2: { halign: 'right' },
+                        3: { halign: 'right' },
+                        4: { halign: 'right' },
+                        5: { halign: 'center' }, // Center for days remaining
+                        6: { halign: 'right' },
+                        7: { halign: 'center' }
+                    },
+                    didParseCell: function (data) {
+                        // Apply different colors for expired/expiring soon rows
+                        if (data.section === 'body') {
+                            const originalDoc = docsForReport[data.row.index];
+                            if (originalDoc.daysRemaining <= 0) {
+                                data.cell.styles.fillColor = [255, 235, 235]; // Light red
+                            } else if (originalDoc.daysRemaining <= 30) {
+                                data.cell.styles.fillColor = [255, 253, 240]; // Light orange
+                            } else {
+                                data.cell.styles.fillColor = [235, 254, 251]; // Light green
+                            }
+                        }
+                    },
+                    didDrawPage: function (data) {
+                        // Footer for page numbers
+                        doc.setFontSize(8);
+                        doc.text("صفحة " + data.pageNumber, pageWidth - 50, doc.internal.pageSize.height - 20, { align: 'right' });
+                        doc.text("تم إنشاء هذا التقرير بواسطة نظام متابعة الوثائق.", 50, doc.internal.pageSize.height - 20, { align: 'left' });
+                    }
+                });
+
+                doc.save('تقرير-جميع-الوثائق.pdf');
+                showModal("تم إنشاء تقرير PDF بنجاح!");
+
+            } catch (error) {
+                console.error("Error generating PDF report:", error);
+                showModal(`خطأ في إنشاء تقرير PDF: ${error.message}. يرجى التحقق من وحدة التحكم للمزيد من التفاصيل. قد تحتاج إلى تضمين خط عربي لدعم النص.`);
+            } finally {
+                loadingOverlay.classList.remove('visible'); // Hide loading overlay in any case
+            }
+        }
+
+
+        // Show general modal function (for messages/confirmations)
+        let currentModalAction = null;
+        function showModal(message, onConfirm = null, isConfirmable = false, isDeleteAction = false) {
+            modalMessage.textContent = message;
+            securityNumberInputContainer.classList.add('hidden'); // Hide by default
+            securityNumberError.classList.add('hidden'); // Hide error by default
+            securityNumberInput.value = ''; // Clear input
+            securityNumberInput.classList.remove('border-red-500'); // Clear error styling
+
+            let finalMessage = message;
+
+            modalConfirmBtn.onclick = () => {
+                if (isDeleteAction && appSecurityNumber) { // If it's a delete action and security number is set
+                    if (securityNumberInput.value === appSecurityNumber) {
+                        securityNumberError.classList.add('hidden');
+                        if (currentModalAction) {
+                            currentModalAction();
+                        }
+                        hideGeneralModal(); // Close modal on success
+                    } else {
+                        securityNumberError.classList.remove('hidden'); // Show error
+                        securityNumberInput.focus(); // Keep focus on input
+                    }
+                } else { // Normal confirmation or delete without security number set
+                    if (currentModalAction) {
+                        currentModalAction();
+                    }
+                    hideGeneralModal(); // Close modal
+                }
+            };
+            modalCancelBtn.onclick = () => {
+                hideGeneralModal(); // Close modal
+                currentModalAction = null;
+            };
+
+            if (isConfirmable && onConfirm) {
+                modalConfirmBtn.classList.remove('hidden');
+                currentModalAction = onConfirm;
+                modalCancelBtn.textContent = 'إلغاء';
+
+                if (isDeleteAction && appSecurityNumber) { // Only show security input if it's a delete action AND a security number is set
+                    finalMessage += "\n\n(يرجى إدخال رقم الأمان للمتابعة)"; // Append message for clarity
+                    securityNumberInputContainer.classList.remove('hidden');
+                    securityNumberInput.focus();
+                }
+
+            } else {
+                modalConfirmBtn.classList.add('hidden');
+                currentModalAction = null;
+                modalCancelBtn.textContent = 'إغلاق';
+            }
+            modalMessage.textContent = finalMessage; // Set the message after potential modification
+            modal.classList.add('visible'); // Show modal with transition
+        }
+
+        function hideGeneralModal() {
+            modal.classList.remove('visible'); // Hide modal with transition
+        }
+
+        // Functions to show/hide Add Document Modal
+        function showAddDocModal() {
+            // Reset form fields for new document
+            addDocumentForm.reset();
+            newDoc = { // Ensure newDoc state is also reset
+                documentNumber: '',
+                computerNumber: '',
+                documentName: '',
+                documentTypeId: '',
+                expirationDate: '',
+                notes: '',
+                attachment: '',
+                attachmentName: ''
+            };
+            addAttachmentNameDisplay.classList.add('hidden');
+
+            // Populate document types dropdown
+            const docTypeSelect = addDocumentForm.querySelector('#documentTypeId');
+            docTypeSelect.innerHTML = '<option value="">اختر نوع الوثيقة</option>' +
+                documentTypes.map(type => `<option value="${type.id}">${type.name}</option>`).join('');
+
+            addDocModal.classList.add('visible');
+        }
+
+        function hideAddDocModal() {
+            addDocModal.classList.remove('visible');
+        }
+
+        // Functions to show/hide Edit Document Modal
+        function showEditDocModal(docToEdit) {
+            editingDoc = { ...docToEdit }; // Create a copy to avoid direct mutation before save
+
+            // Populate form fields with editingDoc data
+            editDocumentForm.querySelector('#editDocNumber').value = editingDoc.documentNumber;
+            editDocumentForm.querySelector('#editComputerNumber').value = editingDoc.computerNumber || '';
+            editDocumentForm.querySelector('#editDocName').value = editingDoc.documentName;
+            editDocumentForm.querySelector('#editExpirationDate').value = editingDoc.expirationDate;
+            editDocumentForm.querySelector('#editNotes').value = editingDoc.notes;
+
+            // Populate document types dropdown
+            const docTypeSelect = editDocumentForm.querySelector('#editDocType');
+            docTypeSelect.innerHTML = '<option value="">اختر نوع الوثيقة</option>' +
+                documentTypes.map(type => `<option value="${type.id}" ${type.id === editingDoc.documentTypeId ? 'selected' : ''}>${type.name}</option>`).join('');
+
+            // Handle attachment display
+            if (editingDoc.attachmentName) {
+                editAttachmentNameDisplay.textContent = `الملف المرفق الحالي: ${editingDoc.attachmentName}`;
+                editAttachmentNameDisplay.classList.remove('hidden');
+                removeAttachmentBtn.classList.remove('hidden');
+            } else {
+                editAttachmentNameDisplay.classList.add('hidden');
+                removeAttachmentBtn.classList.add('hidden');
+            }
+            editDocumentForm.querySelector('#editAttachment').value = ''; // Clear file input value
+
+            editDocModal.classList.add('visible');
+        }
+
+        function hideEditDocModal() {
+            editDocModal.classList.remove('visible');
+            editingDoc = null; // Clear editing state
+        }
+
+        // Functions to show/hide Settings Modal
+        function showSettingsModal() {
+            securityNumberSettingInput.value = appSecurityNumber; // Populate with current security number
+            settingsModal.classList.add('visible');
+        }
+
+        function hideSettingsModal() {
+            settingsModal.classList.remove('visible');
+        }
+
+        // Handle saving settings
+        saveSettingsBtn.addEventListener('click', () => {
+            const newNumber = securityNumberSettingInput.value.trim();
+            saveAppSettings(newNumber);
+            hideSettingsModal();
+        });
+
+
+        // Render functions for different views
+        function renderListView() {
+            // Save current search term and filter selections before re-rendering
+            const currentSearchTerm = document.getElementById('searchTerm')?.value || '';
+            const currentDocTypeFilter = document.getElementById('docTypeFilter')?.value || '';
+            const currentStatusFilter = document.getElementById('statusFilter')?.value || '';
+
+            // Identify the currently focused element and its cursor position if it's the search input
+            let activeElement = document.activeElement;
+            let cursorPosition = 0;
+            if (activeElement && activeElement.id === 'searchTerm') {
+                cursorPosition = activeElement.selectionStart;
+            }
+
+            applyFiltersAndSort(); // Ensure filteredDocuments is up-to-date
+            appContent.innerHTML = `
+                <div class="p-6 bg-white rounded-lg shadow-md">
+                    <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">قائمة الوثائق</h2>
+
+                    <div class="mb-6 flex flex-col sm:flex-row gap-4">
+                        <input type="text" id="searchTerm" class="shadow appearance-none border rounded-lg flex-grow py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" placeholder="بحث برقم الوثيقة، الاسم، الملاحظات، رقم الحاسب..." value="${currentSearchTerm}">
+                        <select id="docTypeFilter" class="shadow appearance-none border rounded-lg py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                            <option value="">تصفية حسب النوع</option>
+                            ${documentTypes.map(type => `<option value="${type.id}" ${type.id === currentDocTypeFilter ? 'selected' : ''}>${type.name}</option>`).join('')}
+                        </select>
+                        <select id="statusFilter" class="shadow appearance-none border rounded-lg py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500">
+                            <option value="">تصفية حسب الحالة</option>
+                            <option value="expired" ${currentStatusFilter === 'expired' ? 'selected' : ''}>وثائق منتهية</option>
+                            <option value="expiringSoon" ${currentStatusFilter === 'expiringSoon' ? 'selected' : ''}>تنتهي قريباً (30 يوم)</option>
+                            <option value="valid" ${currentStatusFilter === 'valid' ? 'selected' : ''}>سارية المفعول</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4 flex justify-end gap-2">
+                        <button id="importExcelBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">
+                            استيراد من Excel
+                        </button>
+                        <button id="exportXLSBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50">
+                            تصدير إلى Excel (XLS)
+                        </button>
+                    </div>
+
+                    ${filteredDocuments.length === 0 ? `
+                        <p class="text-center text-gray-600">لا توجد وثائق مطابقة للمعايير.</p>
+                    ` : `
+                        <div class="overflow-x-auto rounded-lg shadow-lg border border-gray-200">
+                            <table class="min-w-full bg-white">
+                                <thead class="bg-gray-100 border-b border-gray-200">
+                                    <tr>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">رقم الوثيقة</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">رقم الحاسب</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">اسم الوثيقة</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">نوع الوثيقة</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">تاريخ الانتهاء</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">الأيام المتبقية</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">ملاحظات</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">المرفق</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">إجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    ${filteredDocuments.map(doc => `
+                                        <tr class="${getRowClass(doc.daysRemaining)}">
+                                            <td class="py-3 px-4 text-gray-800">${doc.documentNumber}</td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.computerNumber || '-'}</td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.documentName}</td>
+                                            <td class="py-3 px-4 text-gray-800">
+                                                ${documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف'}
+                                            </td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.expirationDate}</td>
+                                            <td class="py-3 px-4 font-bold ${doc.daysRemaining <= 7 ? 'text-red-600' : doc.daysRemaining <= 30 ? 'text-orange-500' : 'text-green-600'}">
+                                                ${doc.daysRemaining} يوم
+                                            </td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.notes || '-'}</td>
+                                            <td class="py-3 px-4 text-gray-800">
+                                                ${doc.attachment && doc.attachmentName ? `
+                                                    <button data-action="download-attachment" data-base64="${doc.attachment}" data-filename="${doc.attachmentName}" class="text-blue-600 hover:underline text-sm font-medium">
+                                                        تنزيل (${doc.attachmentName})
+                                                    </button>
+                                                ` : '-'}
+                                            </td>
+                                            <td class="py-3 px-4 text-right">
+                                                <button data-action="edit-doc" data-doc-id="${doc.id}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-3 rounded-lg text-sm transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50">
+                                                    تعديل
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            `;
+
+            // Re-attach event listeners
+            const searchTermInput = document.getElementById('searchTerm');
+            const docTypeFilterSelect = document.getElementById('docTypeFilter');
+            const statusFilterSelect = document.getElementById('statusFilter');
+
+            if (searchTermInput) {
+                searchTermInput.addEventListener('input', renderListView);
+                // Restore focus and cursor position if it was the active element
+                if (activeElement && activeElement.id === 'searchTerm') {
+                    searchTermInput.focus();
+                    searchTermInput.setSelectionRange(cursorPosition, cursorPosition);
+                }
+            }
+            if (docTypeFilterSelect) {
+                docTypeFilterSelect.addEventListener('change', renderListView);
+            }
+            if (statusFilterSelect) {
+                statusFilterSelect.addEventListener('change', renderListView);
+            }
+
+            document.getElementById('importExcelBtn')?.addEventListener('click', triggerImport);
+            document.getElementById('exportXLSBtn')?.addEventListener('click', () => handleExportToXLS(filteredDocuments));
+
+
+            appContent.querySelectorAll('[data-action="download-attachment"]').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const base64 = e.target.dataset.base64;
+                    const filename = e.target.dataset.filename;
+                    handleDownloadAttachment(base64, filename);
+                });
+            });
+            appContent.querySelectorAll('[data-action="edit-doc"]').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const docId = e.target.dataset.docId;
+                    const docToEdit = documents.find(d => d.id === docId);
+                    if (docToEdit) {
+                        showEditDocModal(docToEdit);
+                    }
+                });
+            });
+        }
+
+        // Modified renderAddDocView to just call showAddDocModal
+        function renderAddDocView() {
+            showAddDocModal();
+            // No need to set innerHTML for appContent as modal is separate
+            appContent.innerHTML = `
+                <div class="p-6 bg-white rounded-lg shadow-md">
+                    <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">إضافة وثيقة جديدة</h2>
+                    <p class="text-center text-gray-600">الرجاء استخدام النافذة المنبثقة لإضافة وثيقة جديدة.</p>
+                </div>
+            `;
+        }
+
+        // Modified renderEditDocView to just call showEditDocModal
+        function renderEditDocView() {
+            // This view is only reached by clicking "Edit" in the list, which already calls showEditDocModal
+            // So, this function primarily handles the case where editingDoc might be null (e.g., direct URL access)
+            if (!editingDoc) {
+                 appContent.innerHTML = `
+                    <div class="text-center p-8 text-red-600 font-bold">
+                        <p>لم يتم تحديد وثيقة للتعديل.</p>
+                        <button id="backToListBtn" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                            العودة للقائمة
+                        </button>
+                    </div>
+                `;
+                document.getElementById('backToListBtn').addEventListener('click', () => {
+                    currentView = 'list';
+                    renderApp();
+                });
+            } else {
+                 appContent.innerHTML = `
+                    <div class="p-6 bg-white rounded-lg shadow-md">
+                        <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">تعديل وثيقة</h2>
+                        <p class="text-center text-gray-600">الرجاء استخدام النافذة المنبثقة لتعديل الوثيقة.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderManageTypesView() {
+            appContent.innerHTML = `
+                <div class="p-6 bg-white rounded-lg shadow-md">
+                    <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">إدارة أنواع الوثائق</h2>
+                    <div class="mb-6 flex flex-col sm:flex-row gap-2 rtl:space-x-reverse">
+                        <input type="text" id="newDocTypeInput" class="shadow appearance-none border rounded-lg flex-grow py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:border-blue-500" placeholder="اسم نوع الوثيقة الجديد" value="${newDocType}">
+                        <button id="addDocTypeBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            إضافة نوع
+                        </button>
+                    </div>
+
+                    ${documentTypes.length === 0 ? `
+                        <p class="text-center text-gray-600">لا توجد أنواع وثائق مضافة بعد.</p>
+                    ` : `
+                        <ul class="divide-y divide-gray-200">
+                            ${documentTypes.map(type => `
+                                <li class="py-3 flex items-center justify-between">
+                                    <span class="text-gray-800 text-base">${type.name}</span>
+                                    <button data-action="delete-doc-type" data-type-id="${type.id}" class="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-lg text-sm transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
+                                        حذف
+                                    </button>
+                                </li>
+                            `).join('')}
+                        </ul>
+                    `}
+                </div>
+            `;
+            document.getElementById('addDocTypeBtn').addEventListener('click', handleAddDocType);
+            appContent.querySelectorAll('[data-action="delete-doc-type"]').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const typeId = e.target.dataset.typeId;
+                    handleDeleteDocType(typeId);
+                });
+            });
+            const newDocTypeInput = document.getElementById('newDocTypeInput');
+            if (newDocTypeInput) {
+                newDocTypeInput.addEventListener('input', (e) => {
+                    newDocType = e.target.value;
+                });
+            }
+        }
+
+        function renderReportView() {
+            const totalDocuments = documents.length;
+            const expiredDocuments = documents.filter(doc => doc.daysRemaining <= 0).length;
+            const expiringSoonDocuments = documents.filter(doc => doc.daysRemaining > 0 && doc.daysRemaining <= 30).length;
+            const validDocuments = documents.filter(doc => doc.daysRemaining > 30).length;
+
+
+            const documentsByType = documents.reduce((acc, doc) => {
+                const typeName = documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف';
+                acc[typeName] = (acc[typeName] || 0) + 1;
+                return acc;
+            }, {});
+
+            appContent.innerHTML = `
+                <div class="p-6 bg-white rounded-lg shadow-md">
+                    <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">تقرير الوثائق الشامل</h2>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 text-center">
+                        <div class="bg-blue-50 p-5 rounded-lg shadow-sm border border-blue-200 flex flex-col items-center justify-center">
+                            <span class="text-4xl text-blue-600 mb-2">📄</span>
+                            <h3 class="text-lg font-semibold text-blue-800">إجمالي الوثائق</h3>
+                            <p class="text-4xl font-extrabold text-blue-700">${totalDocuments}</p>
+                        </div>
+                        <div class="bg-red-50 p-5 rounded-lg shadow-sm border border-red-200 flex flex-col items-center justify-center">
+                            <span class="text-4xl text-red-600 mb-2">⚠️</span>
+                            <h3 class="text-lg font-semibold text-red-800">وثائق منتهية</h3>
+                            <p class="text-4xl font-extrabold text-red-700">${expiredDocuments}</p>
+                        </div>
+                        <div class="bg-orange-50 p-5 rounded-lg shadow-sm border border-orange-200 flex flex-col items-center justify-center">
+                            <span class="text-4xl text-orange-600 mb-2">⏳</span>
+                            <h3 class="text-lg font-semibold text-orange-800">تنتهي قريباً (30 يوم)</h3>
+                            <p class="text-4xl font-extrabold text-orange-700">${expiringSoonDocuments}</p>
+                        </div>
+                        <div class="bg-green-50 p-5 rounded-lg shadow-sm border border-green-200 flex flex-col items-center justify-center">
+                            <span class="text-4xl text-green-600 mb-2">✅</span>
+                            <h3 class="text-lg font-semibold text-green-800">سارية المفعول</h3>
+                            <p class="text-4xl font-extrabold text-green-700">${validDocuments}</p>
+                        </div>
+                    </div>
+
+                    <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow-inner border border-gray-200">
+                        <h3 class="text-xl font-bold mb-4 text-gray-800 text-center">الوثائق حسب النوع</h3>
+                        ${Object.keys(documentsByType).length === 0 ? `
+                            <p class="text-center text-gray-600">لا توجد وثائق مصنفة حسب النوع.</p>
+                        ` : `
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                ${Object.entries(documentsByType).map(([type, count]) => `
+                                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
+                                        <span class="text-gray-700 font-semibold text-base">${type}:</span>
+                                        <span class="text-blue-600 text-xl font-bold">${count}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+
+                    <div class="mb-4 flex flex-wrap justify-end gap-2">
+                        <button id="importExcelBtnReport" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">
+                            استيراد من Excel
+                        </button>
+                        <button id="exportXLSBtnReport" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50">
+                            تصدير إلى Excel (XLS)
+                        </button>
+                        <button id="shareWhatsAppBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50">
+                            مشاركة عبر واتساب
+                        </button>
+                    </div>
+                    ${filteredDocuments.length === 0 ? `
+                        <p class="text-center text-gray-600">لا توجد وثائق لعرضها في التقرير.</p>
+                    ` : `
+                        <div class="overflow-x-auto rounded-lg shadow-lg border border-gray-200">
+                            <table class="min-w-full bg-white">
+                                <thead class="bg-gray-100 border-b border-gray-200">
+                                    <tr>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">رقم الوثيقة</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">رقم الحاسب</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">اسم الوثيقة</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">نوع الوثيقة</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">تاريخ الانتهاء</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">الأيام المتبقية</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">ملاحظات</th>
+                                        <th class="py-3 px-4 text-right text-sm font-semibold text-gray-600 uppercase tracking-wider">المرفق</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    ${filteredDocuments.map(doc => `
+                                        <tr class="${getRowClass(doc.daysRemaining)}">
+                                            <td class="py-3 px-4 text-gray-800">${doc.documentNumber}</td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.computerNumber || '-'}</td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.documentName}</td>
+                                            <td class="py-3 px-4 text-gray-800">
+                                                ${documentTypes.find(type => type.id === doc.documentTypeId)?.name || 'غير معروف'}
+                                            </td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.expirationDate}</td>
+                                            <td class="py-3 px-4 font-bold ${doc.daysRemaining <= 7 ? 'text-red-600' : doc.daysRemaining <= 30 ? 'text-orange-500' : 'text-green-600'}">
+                                                ${doc.daysRemaining} يوم
+                                            </td>
+                                            <td class="py-3 px-4 text-gray-800">${doc.notes || '-'}</td>
+                                            <td class="py-3 px-4 text-gray-800">
+                                                ${doc.attachment && doc.attachmentName ? `
+                                                    <button data-action="download-attachment" data-base64="${doc.attachment}" data-filename="${doc.attachmentName}" class="text-blue-600 hover:underline text-sm font-medium">
+                                                        تنزيل (${doc.attachmentName})
+                                                    </button>
+                                                ` : '-'}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            `;
+            document.getElementById('importExcelBtnReport')?.addEventListener('click', triggerImport);
+            document.getElementById('exportXLSBtnReport')?.addEventListener('click', () => handleExportToXLS(filteredDocuments, 'report_export.xls'));
+            document.getElementById('shareWhatsAppBtn')?.addEventListener('click', handleShareToWhatsApp);
+            // Removed the professionalReportBtn listener as the button is removed.
+            appContent.querySelectorAll('[data-action="download-attachment"]').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const base64 = e.target.dataset.base64;
+                    const filename = e.target.dataset.filename;
+                    handleDownloadAttachment(base64, filename);
+                });
+            });
+        }
+
+        // Main render function based on currentView
+        function renderApp() {
+            if (!isAuthReady) {
+                appContent.innerHTML = `
+                    <div class="flex justify-center items-center h-full">
+                        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+                        <p class="ml-4 text-lg text-gray-700">جاري تحميل التطبيق...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (!db || !currentUserId) {
+                appContent.innerHTML = `
+                    <div class="text-center p-8 text-red-600 font-bold">
+                        <p>خطأ: لم يتم تهيئة قاعدة البيانات أو معرف المستخدم غير متاح.</p>
+                        <p>الرجاء تحديث الصفحة أو الاتصال بالدعم إذا استمرت المشكلة.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Hide all modals before rendering the main view content
+            hideAddDocModal();
+            hideEditDocModal();
+            hideSettingsModal();
+            hideGeneralModal(); // Ensure general modal is also hidden
+
+            switch (currentView) {
+                case 'list':
+                    renderListView();
+                    break;
+                case 'add-doc':
+                    // Just show the modal, main content remains the same or shows a placeholder
+                    showAddDocModal();
+                    appContent.innerHTML = `
+                        <div class="p-6 bg-white rounded-lg shadow-md">
+                            <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">إضافة وثيقة جديدة</h2>
+                            <p class="text-center text-gray-600">الرجاء استخدام النافذة المنبثقة لإضافة وثيقة جديدة.</p>
+                        </div>
+                    `;
+                    break;
+                case 'manage-types':
+                    renderManageTypesView();
+                    break;
+                case 'report':
+                    renderReportView();
+                    break;
+                case 'edit-doc':
+                    // This case should ideally not be reached directly from navigation,
+                    // but if it is, and editingDoc is set, show the modal.
+                    // Otherwise, show an error or redirect to list.
+                    if (editingDoc) {
+                        showEditDocModal(editingDoc);
+                        appContent.innerHTML = `
+                            <div class="p-6 bg-white rounded-lg shadow-md">
+                                <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">تعديل وثيقة</h2>
+                                <p class="text-center text-gray-600">الرجاء استخدام النافذة المنبثقة لتعديل الوثيقة.</p>
+                            </div>
+                        `;
+                    } else {
+                        currentView = 'list'; // Fallback to list view
+                        renderApp();
+                    }
+                    break;
+                case 'settings': // New settings view
+                    showSettingsModal();
+                    appContent.innerHTML = `
+                        <div class="p-6 bg-white rounded-lg shadow-md">
+                            <h2 class="text-xl font-bold mb-6 text-gray-800 text-center">إعدادات التطبيق</h2>
+                            <p class="text-center text-gray-600">الرجاء استخدام النافذة المنبثقة لإدارة الإعدادات.</p>
+                        </div>
+                    `;
+                    break;
+                default:
+                    renderListView();
+            }
+            // Update active navigation button styling
+            [listBtn, addDocBtn, manageTypesBtn, reportBtn, settingsBtn].forEach(btn => {
+                btn.classList.remove('bg-blue-600');
+                btn.classList.add('hover:bg-blue-700');
+            });
+            if (currentView === 'list') listBtn.classList.add('bg-blue-600');
+            else if (currentView === 'add-doc') addDocBtn.classList.add('bg-blue-600');
+            else if (currentView === 'manage-types') manageTypesBtn.classList.add('bg-blue-600');
+            else if (currentView === 'report') reportBtn.classList.add('bg-blue-600');
+            else if (currentView === 'settings') settingsBtn.classList.add('bg-blue-600');
+
+
+            // Update footer year
+            document.getElementById('currentYear').textContent = new Date().getFullYear();
+        }
+
+        // Add event listeners for navigation buttons
+        listBtn.addEventListener('click', () => { currentView = 'list'; renderApp(); });
+        addDocBtn.addEventListener('click', () => { currentView = 'add-doc'; renderApp(); }); // This will now trigger showAddDocModal
+        manageTypesBtn.addEventListener('click', () => { currentView = 'manage-types'; renderApp(); });
+        reportBtn.addEventListener('click', () => { currentView = 'report'; renderApp(); });
+        settingsBtn.addEventListener('click', () => { currentView = 'settings'; renderApp(); }); // New settings button listener
+
+        // Add event listeners for modal close buttons
+        closeAddDocModalBtn.addEventListener('click', hideAddDocModal);
+        closeEditDocModalBtn.addEventListener('click', hideEditDocModal);
+        closeSettingsModalBtn.addEventListener('click', hideSettingsModal); // New settings modal close listener
+
+        // Add event listeners for modal forms (delegated from the form itself)
+        addDocumentForm.addEventListener('submit', handleAddDocument);
+        addDocumentForm.querySelector('#attachment').addEventListener('change', (e) => handleFileChange(e, false));
+
+        editDocumentForm.addEventListener('submit', handleUpdateDocument);
+        editDocumentForm.querySelector('#editAttachment').addEventListener('change', (e) => handleFileChange(e, true));
+        // The delete button in edit modal now calls handleDeleteDocument which uses the general modal
+        editDocumentForm.querySelector('#deleteDocBtn').addEventListener('click', () => handleDeleteDocument(editingDoc.id));
+        editDocumentForm.querySelector('#cancelEditBtn').addEventListener('click', hideEditDocModal);
+        if (removeAttachmentBtn) {
+            removeAttachmentBtn.addEventListener('click', () => {
+                editingDoc.attachment = '';
+                editingDoc.attachmentName = '';
+                editAttachmentNameDisplay.classList.add('hidden');
+                removeAttachmentBtn.classList.add('hidden');
+                // No need to re-render the whole app, just update the attachment display
+            });
+        }
+
+
+        // Initialize Firebase and start the app
+        initializeFirebase();
+
+    </script>
+</body>
+</html>
